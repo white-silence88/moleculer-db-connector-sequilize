@@ -12,9 +12,9 @@
 const _ 		= require("lodash"),
       Promise	= require("bluebird"),
       Sequelize = require("sequelize");
+
 /* Constants with error message */
 const errorModel = 'Missing `model` definition in schema of service!';
-
 
 
 class SequelizeDbConnector {
@@ -54,17 +54,26 @@ class SequelizeDbConnector {
 	connect() {
     /* Check in process connection to database. If it find - get this connection,
      * if not - create new sequilize object. */
-    this.db = (process.dbConnection) ? process.dbConnection : new Sequelize(...this.opts);
+    if (process.isCommonDb[process.pid]) {
+      this.db = (process.dbCommonConnection[process.pid])
+        ? process.dbCommonConnection[process.pid]
+        : new Sequelize(...this.opts);
 
-		return this.db.authenticate()
-      .then(() => {
-			  let m = this.service.schema.model;
-        /* Call model with connection */
-        this.model = m(this.db);
-			  this.service.model = this.model;
-        
-			  return this.model.sync();
-		  });
+      if(!process.dbCommonConnection[process.pid]) process.dbCommonConnection[process.pid] = this.db;
+
+    } else {
+      this.db = new Sequelize(...this.opts);
+    }
+
+
+		return this.db.authenticate().then(() => {
+
+			let m = this.service.schema.model;
+      this.model = m(this.db);
+			this.service.model = this.model;
+
+			return this.model.sync();
+		});
 	}
 
 	/**
@@ -374,4 +383,11 @@ class SequelizeDbConnector {
   }
 }
 
-module.exports = SequelizeDbConnector;
+module.exports = (common) => {
+  if(!process.isCommonDb) process.isCommonDb = {};
+  
+  process.isCommonDb[process.pid]= (common && typeof common === 'boolean') ? common : false;
+  if(process.isCommonDb[process.pid] && !process.dbCommonConnection) process.dbCommonConnection = {}; 
+
+  return SequelizeDbAdapter;
+};
